@@ -48,6 +48,8 @@ jobs:
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
           yes | sdkmanager --licenses || true
           sdkmanager --update || true
+        echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+        echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
 
       - name: Install required SDK packages (dynamic build-tools)
         shell: bash
@@ -56,7 +58,7 @@ jobs:
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
 
           # 항상 필요한 것들
-          sdkmanager "platform-tools" "platforms;android-34"
+          sdkmanager "platform-tools" "platforms;android-35"
 
           echo "== Available build-tools (short) =="
           sdkmanager --list | sed -n '/Available Packages:/,$p' | grep -E 'build-tools;[0-9]+' | tail -n 50 || true
