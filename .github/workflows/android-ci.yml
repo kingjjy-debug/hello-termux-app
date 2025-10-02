@@ -1,0 +1,55 @@
+name: Android CI (assembleDebug)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+      JAVA_HOME_17_X64: ${{ steps.setup-java.outputs.path }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        id: setup-java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # 필요한 패키지를 명시적으로 설치
+          packages: |
+            platform-tools
+            build-tools;34.0.0
+            platforms;android-34
+
+      - name: Set up Gradle (no wrapper)
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          # AGP 8.2.x는 Gradle 8.2~8.4 권장
+          gradle-version: 8.4
+
+      - name: Gradle Build (assembleDebug)
+        run: |
+          gradle --version
+          gradle :app:assembleDebug
+
+      - name: Upload APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
