@@ -14,7 +14,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     env:
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -30,52 +29,49 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Install Android cmdline-tools + accept licenses
+      - name: Install Android cmdline-tools (idempotent)
         shell: bash
         run: |
-          set -euxo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          # 이미 sdkmanager가 있으면 설치 스킵(경로만 노출)
-          if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "sdkmanager already present → skip download"
-          else
+          set -euo pipefail
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
             tmpdir="$(mktemp -d)"; cd "$tmpdir"
-            curl -L -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            curl -fsSL -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
             unzip -q cmdline-tools.zip
-            # 기존 잔여물이 있으면 정리 후 깔기
-            rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"/*
-            mv cmdline-tools/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+            # 평탄화
+            if [ -d cmdline-tools ]; then
+              mv cmdline-tools/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+            fi
+          else
+            echo "sdkmanager already present → skip download"
           fi
-          # PATH 노출
+          # PATH 노출(러너 전용)
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          # 라이선스 수락 + 업데이트 (실패해도 계속)
-          yes | sdkmanager --licenses || true
-          sdkmanager --update || true
-      - name: Install required SDK packages
+
+      - name: Accept licenses & update
         shell: bash
         run: |
-          set -euxo pipefail
-          # sdkmanager 사용 전 PATH가 GITHUB_PATH로 주입되었으므로 바로 호출 가능
-          sdkmanager "platform-tools" "platforms;android-35" || sdkmanager "platforms;android-34"
-          # build-tools는 가장 최신 안정판을 자동 선택
-          LIST="$(sdkmanager --list || true)"
-          FOUND="$(echo "$LIST" | grep -Eo 'build-tools;[0-9]+\.[0-9]+\.[0-9]+' | awk -F';' '{print $2}' | sort -V | tail -n1 || true)"
-          if [ -z "$FOUND" ]; then
-            echo "::error::No build-tools found from sdkmanager --list"
-            exit 1
-          fi
-          echo ">> Installing build-tools;$FOUND"
-          sdkmanager "build-tools;$FOUND"
+          set -euo pipefail
+          yes | sdkmanager --licenses || true
+          sdkmanager --update || true
+
+      - name: Install required SDK packages (pin versions)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.1"
+          sdkmanager --list | grep -E "build-tools;|platforms;android-" | tail -n 30 || true
 
       - name: Write local.properties
+        shell: bash
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-          # 여유 메모리 설정(gradle.properties가 이미 있으면 append만)
-          echo "org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8" >> gradle.properties || true
-          cat local.properties
+          echo "org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8" >> gradle.properties
 
       - name: Show env
+        shell: bash
         run: |
           echo "JAVA_HOME=$JAVA_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
@@ -88,7 +84,9 @@ jobs:
           gradle-version: 8.4
 
       - name: Gradle Build (assembleDebug)
+        shell: bash
         run: |
+          set -euo pipefail
           gradle --no-daemon --warning-mode all :app:assembleDebug --stacktrace --info
 
       - name: Upload APK artifact
@@ -97,3 +95,4 @@ jobs:
         with:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
