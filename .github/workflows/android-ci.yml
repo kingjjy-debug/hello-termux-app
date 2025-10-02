@@ -16,29 +16,58 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        id: setup-java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: 'gradle'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            build-tools;34.0.0
-            platforms;android-34
+      # cmdline-tools 및 sdkmanager 직접 사용해 패키지 설치를 보장
+      - name: Install Android cmdline-tools + required SDK packages
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          # cmdline-tools 최신 설치 (이미 존재하면 건너뜀)
+          if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
+            TMP="$(mktemp -d)"
+            cd "$TMP"
+            # 구글 공식 zip 내려받아 설치
+            curl -L -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            unzip -q cmdline-tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            # unzip하면 'cmdline-tools' 하위로 풀리므로 구조를 맞춰줌
+            if [ -d "$ANDROID_SDK_ROOT/cmdline-tools/latest/cmdline-tools" ]; then
+              mv "$ANDROID_SDK_ROOT/cmdline-tools/latest/cmdline-tools/"* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+              rmdir "$ANDROID_SDK_ROOT/cmdline-tools/latest/cmdline-tools"
+            fi
+          fi
 
-      - name: Set up Gradle (use 8.4)
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses || true
+          sdkmanager --update || true
+
+          # 필요한 패키지 정확히 지정 (34.0.2 사용)
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.2"
+
+      - name: Show env
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          which sdkmanager || true
+          sdkmanager --version || true
+          ls -R "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}" | head -n 100 || true
+
+      - name: Set up Gradle (8.4)
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.4
 
       - name: Gradle Build (assembleDebug)
         run: |
-          gradle --version
-          gradle :app:assembleDebug
+          gradle --no-daemon --warning-mode all :app:assembleDebug --stacktrace --info
 
       - name: Upload APK artifact
         if: success()
