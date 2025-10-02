@@ -17,3 +17,4 @@ captures/
 
 # Logs
 *.log
+!gradle.properties
