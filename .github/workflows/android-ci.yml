@@ -35,18 +35,23 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          tmpdir="$(mktemp -d)"; cd "$tmpdir"
-          curl -L -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q cmdline-tools.zip
-          # unzip하면 cmdline-tools/ 디렉토리가 한 겹 더 생김 → 평평하게 이동
-          mv cmdline-tools/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+          # 이미 sdkmanager가 있으면 설치 스킵(경로만 노출)
+          if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "sdkmanager already present → skip download"
+          else
+            tmpdir="$(mktemp -d)"; cd "$tmpdir"
+            curl -L -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q cmdline-tools.zip
+            # 기존 잔여물이 있으면 정리 후 깔기
+            rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"/*
+            mv cmdline-tools/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+          fi
           # PATH 노출
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
           # 라이선스 수락 + 업데이트 (실패해도 계속)
           yes | sdkmanager --licenses || true
           sdkmanager --update || true
-
       - name: Install required SDK packages
         shell: bash
         run: |
