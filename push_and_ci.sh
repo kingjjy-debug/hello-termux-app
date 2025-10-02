@@ -7,18 +7,13 @@ REPO_NAME="hello-termux-app"
 REPO="$REPO_OWNER/$REPO_NAME"
 BRANCH="main"
 WORKFLOW_FILE="android-ci.yml"
-WORKFLOW_NAME="Android CI (assembleDebug)"
 DOWNLOAD_DIR="$HOME/downloads"
-COMMIT_MSG="${1:-Update CI and manifest}"
+COMMIT_MSG="${1:-Update}"
 
-require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || { echo "[ERROR] '$1' 명령이 필요합니다."; exit 1; }
-}
-
+require_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "[ERROR] '$1' 명령이 필요합니다."; exit 1; }; }
 require_cmd gh
 require_cmd git
 
-# ====== AUTH CHECK ======
 if ! gh auth status >/dev/null 2>&1; then
   echo "[ERROR] gh 로그인이 필요합니다: gh auth login"
   exit 1
@@ -26,10 +21,10 @@ fi
 
 cd "$HOME/apk_prj_ver_1"
 
-# ====== PRE-RUN SNAPSHOT ======
+# 미리 기존 최신 RUN_ID 스냅샷(참고용)
 PREV_RUN_ID="$(gh run list --repo "$REPO" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || echo "")"
 
-# ====== GIT INIT/PUSH ======
+# GIT 준비 및 PUSH
 if [ ! -d .git ]; then
   git init
   git config user.name "${GIT_USER_NAME:-$(gh api user -q .login || echo 'user')}"
@@ -42,33 +37,23 @@ else
   git commit -m "$COMMIT_MSG" || true
 fi
 
-# 리포 생성(없으면)
 if ! gh repo view "$REPO" >/dev/null 2>&1; then
   echo "[INFO] GitHub repo가 없어 새로 만듭니다: $REPO"
   gh repo create "$REPO" --public -y
 fi
-
-# 리모트 설정
 if ! git remote get-url origin >/dev/null 2>&1; then
   git remote add origin "https://github.com/$REPO.git"
 fi
 
-# 푸시
 git push -u origin "$BRANCH"
 
-# 내 최신 커밋 SHA
+# 내 커밋 SHA
 HEAD_SHA="$(git rev-parse HEAD)"
 
-# ====== ENSURE WORKFLOW DISPATCH ======
-# 명시적으로 workflow_dispatch 실행 (브랜치 지정)
-echo "[INFO] 워크플로우 수동 트리거: $WORKFLOW_FILE @ $BRANCH"
-gh workflow run "$WORKFLOW_FILE" --repo "$REPO" --ref "$BRANCH" >/dev/null 2>&1 || true
-
-# ====== POLL FOR NEW RUN MATCHING HEAD_SHA ======
+# ====== 새 Run (push 트리거) 기다리기: HEAD_SHA 매칭되는 것만 선택 ======
 echo "[INFO] 새 런이 생성될 때까지 대기 (내 커밋 SHA 매칭)"
 NEW_RUN_ID=""
-for i in $(seq 1 20); do
-  # 최신 10개 중 내 커밋 SHA와 매칭되는 첫 런을 찾음
+for i in $(seq 1 30); do
   while IFS=$'\t' read -r rid sha status; do
     if [ "$sha" = "$HEAD_SHA" ]; then
       NEW_RUN_ID="$rid"
@@ -100,7 +85,7 @@ else
   exit 1
 fi
 
-# ====== DOWNLOAD ARTIFACTS (특정 이름 우선) ======
+# ====== DOWNLOAD ARTIFACTS ======
 mkdir -p "$DOWNLOAD_DIR"
 echo "[INFO] 아티팩트 다운로드 → $DOWNLOAD_DIR"
 if ! gh run download --repo "$REPO" "$NEW_RUN_ID" --name "app-debug-apk" -D "$DOWNLOAD_DIR"; then
